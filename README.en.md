@@ -4,6 +4,13 @@
 
 Guideng iOS is the iOS app wrapper for the Guideng frontend. It is built with React, Vite, and Capacitor. The app is designed for family location sharing: after signing in to a self-hosted Guideng server, it collects device location updates and sends them to the configured server.
 
+## Version 2.0
+
+- Reworked the iOS background reporting path to prevent duplicate uploads from native and WebView location services.
+- Added time, distance, and accuracy filtering to reduce invalid tracks caused by stationary GPS drift.
+- Tuned location accuracy and automatic pausing to reduce background battery and network usage.
+- Kept compatibility with older native shells and added reporting limits to the fallback path.
+
 ## Features
 
 - Wraps the existing Guideng frontend as an iOS app

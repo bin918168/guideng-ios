@@ -919,11 +919,16 @@ async function startNativeLocationSharing(session: Session, onShared: () => Prom
       token: session.token,
       deviceId: session.deviceId,
     });
+    await onShared();
+    return () => undefined;
   }
+
+  let lastFallbackUploadAt = 0;
   const initialPosition = await getNativeInitialLocation();
   if (initialPosition) {
     try {
       await sendLocation(session, nativeLocationPayload(initialPosition));
+      lastFallbackUploadAt = Date.now();
       await onShared();
     } catch (err) {
       onError(err);
@@ -936,7 +941,7 @@ async function startNativeLocationSharing(session: Session, onShared: () => Prom
       backgroundMessage: 'Guideng is sharing this device location with your server.',
       requestPermissions: false,
       stale: true,
-      distanceFilter: 0,
+      distanceFilter: 15,
     },
     async (position?: NativeLocation, error?: CallbackError) => {
       if (error) {
@@ -944,6 +949,9 @@ async function startNativeLocationSharing(session: Session, onShared: () => Prom
         return;
       }
       if (!position) return;
+      const now = Date.now();
+      if (now - lastFallbackUploadAt < 15_000) return;
+      lastFallbackUploadAt = now;
       try {
         await sendLocation(session, nativeLocationPayload(position));
         await onShared();
@@ -973,8 +981,8 @@ async function getNativeInitialLocation() {
       watcherId = await BackgroundGeolocation.addWatcher(
         {
           requestPermissions: false,
-          stale: true,
-          distanceFilter: 0,
+          stale: false,
+          distanceFilter: 15,
         },
         (position?: NativeLocation) => {
           if (position) lastPosition = position;

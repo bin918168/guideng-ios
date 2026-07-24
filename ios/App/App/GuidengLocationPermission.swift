@@ -65,18 +65,23 @@ final class GuidengLocationService: NSObject, CLLocationManagerDelegate {
     private let configurationKey = "guideng.nativeLocation.configuration"
     private let pendingKey = "guideng.nativeLocation.pending"
     private let queue = DispatchQueue(label: "com.guideng.location-upload")
+    private let minimumUploadInterval: TimeInterval = 15
+    private let stationaryUploadInterval: TimeInterval = 180
+    private let minimumUploadDistance: CLLocationDistance = 10
+    private let maximumHorizontalAccuracy: CLLocationAccuracy = 150
     private var configuration: Configuration?
     private var pending: [PendingLocation] = []
     private var uploading = false
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var lastAcceptedLocation: CLLocation?
 
     private override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = kCLDistanceFilterNone
-        manager.activityType = .otherNavigation
-        manager.pausesLocationUpdatesAutomatically = false
+        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        manager.distanceFilter = minimumUploadDistance
+        manager.activityType = .other
+        manager.pausesLocationUpdatesAutomatically = true
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
     }
@@ -107,6 +112,7 @@ final class GuidengLocationService: NSObject, CLLocationManagerDelegate {
         manager.stopMonitoringSignificantLocationChanges()
         configuration = nil
         pending = []
+        lastAcceptedLocation = nil
         defaults.removeObject(forKey: configurationKey)
         defaults.removeObject(forKey: pendingKey)
     }
@@ -126,7 +132,8 @@ final class GuidengLocationService: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         let formatter = ISO8601DateFormatter()
         let additions = locations
-            .filter { $0.horizontalAccuracy >= 0 && abs($0.timestamp.timeIntervalSinceNow) < 300 }
+            .sorted { $0.timestamp < $1.timestamp }
+            .filter { shouldAccept($0) }
             .map { location in
                 PendingLocation(latitude: location.coordinate.latitude,
                                 longitude: location.coordinate.longitude,
@@ -143,6 +150,28 @@ final class GuidengLocationService: NSObject, CLLocationManagerDelegate {
             self.savePending()
             self.flush()
         }
+    }
+
+    private func shouldAccept(_ location: CLLocation) -> Bool {
+        guard location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= maximumHorizontalAccuracy,
+              abs(location.timestamp.timeIntervalSinceNow) < 300 else { return false }
+
+        guard let previous = lastAcceptedLocation else {
+            lastAcceptedLocation = location
+            return true
+        }
+
+        let elapsed = location.timestamp.timeIntervalSince(previous.timestamp)
+        guard elapsed >= minimumUploadInterval else { return false }
+
+        let distance = location.distance(from: previous)
+        guard distance >= minimumUploadDistance || elapsed >= stationaryUploadInterval else {
+            return false
+        }
+
+        lastAcceptedLocation = location
+        return true
     }
 
     private func flush() {
